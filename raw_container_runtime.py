@@ -11,6 +11,15 @@ def command():
         if fix_proc == 0:
             os.sethostname(b"legleg-ubuntu")
 
+            #specify passed argument and returned data types before any libc.mount are use d
+            libc.mount.argtypes = [ #to specify type of data passed in
+                    ctypes.c_char_p, #points to immutable string -> read-only c strings
+                    ctypes.c_char_p,
+                    ctypes.c_char_p,
+                    ctypes.c_ulong, #unsigned long integers
+                    ctypes.c_void_p 
+            ]
+            libc.mount.restype = ctypes.c_int #type to return            
             #mount flags - to recursively make the mount tree private (usually used after unshare)
             MS_REC = 16384 #recursive
             MS_PRIVATE = 1 << 18 #make private
@@ -27,7 +36,7 @@ def command():
                     raise OSError(err_2, "mount failed")
                 
                 else:
-                    os.mkdir(b"/put_old", exist_ok=True)
+                    os.makedirs(b"/put_old", exist_ok=True) #makedirs can ignore existent file path error
                     ARCH = os.uname().machine
                     if ARCH == "x86_64":
                         SYS_pivot_root = 155
@@ -38,17 +47,22 @@ def command():
                     else:
                         raise RuntimeError(f"CPU Architecture not supported: {ARCH}")
 
-                libc.mount.argtypes = [ #to specify type of data passed in
-                    ctypes.c_char_p, #points to immutable string -> read-only c strings
-                    ctypes.c_char_p,
-                    ctypes.c_char_p,
-                    ctypes.c_ulong, #unsigned long integers
-                    ctypes.c_void_p #
-                ]
-                libc.mount.restype = ctypes.c_int #type to return
-                
+                a = libc.syscall(SYS_pivot_root, b"/", b"/put_old")
+                if a != 0:
+                    err_3 = ctypes.get_errno()
+                    raise OSError(err_3, f"pivot_root failed: {os.strerror(err_3)}")
+                os.chdir("/")
+                MNT_DETACH = 2
+                ret_3 = libc.umount(b"/put_old", MNT_DETACH)
+                if ret_3 != 0:
+                    err_4 = ctypes.get_errno()
+                    raise OSError(err_4, f"unmount failed: {os.strerror(err_4)}")
+                os.rmdir("/put_old")
+                libc.mount(b"proc", b"/proc", b"proc", 0, None)
+                os.execv(b"/bin/sh", ["/bin/sh"])
         else: 
-           os.waitpid(fix_proc, 0) #pause until child process whose pid in fix_proc exits)
+           os.waitpid(fix_proc, 0) #pause until child process whose pid in fix_proc exits
+
     else: #parent
         os.waitpid(pid, 0)
     return 
