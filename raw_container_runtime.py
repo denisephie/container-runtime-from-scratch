@@ -1,10 +1,11 @@
-import os 
-import ctypes 
+import os
+import ctypes
+import sys
 
 libc = ctypes.CDLL('libc.so.6', use_errno=True)
 
-def command(): 
-    pid = os.fork() 
+def command():
+    pid = os.fork()
     if pid == 0: #child
         os.unshare(os.CLONE_NEWUTS | os.CLONE_NEWPID | os.CLONE_NEWNS)
         fix_proc = os.fork() #the proc we want to isolate -> bcomes PID 1
@@ -17,7 +18,7 @@ def command():
                     ctypes.c_char_p,
                     ctypes.c_char_p,
                     ctypes.c_ulong, #unsigned long integers
-                    ctypes.c_void_p 
+                    ctypes.c_void_p
             ]
             libc.mount.restype = ctypes.c_int #type to return            
             #mount flags - to recursively make the mount tree private (usually used after unshare)
@@ -27,16 +28,17 @@ def command():
             if ret != 0:
                 err = ctypes.get_errno()
                 raise OSError(err, "mount failed")
-            
-            else:
+           
+            else: #make rootfs into mount point here (during self-bind)
+                os.makedirs(b"/rootfs", exist_ok=True)
                 MS_BIND = 4096
-                ret_2 = libc.mount(b"/", b"/", None, MS_BIND | MS_REC, None)
+                ret_2 = libc.mount(b"/rootfs", b"/rootfs", None, MS_BIND | MS_REC, None)
                 if ret_2 != 0:
                     err_2 = ctypes.get_errno()
                     raise OSError(err_2, "mount failed")
-                
+               
                 else:
-                    os.makedirs(b"/put_old", exist_ok=True) #makedirs can ignore existent file path error
+                    os.makedirs(b"/rootfs/put_old", exist_ok=True) #makedirs can ignore existent file path error
                     ARCH = os.uname().machine
                     if ARCH == "x86_64":
                         SYS_pivot_root = 155
@@ -46,29 +48,24 @@ def command():
                         SYS_pivot_root = 217
                     else:
                         raise RuntimeError(f"CPU Architecture not supported: {ARCH}")
+                # place new root (rootfs) into new namespace
 
-                a = libc.syscall(SYS_pivot_root, b"/", b"/put_old")
+                a = libc.syscall(SYS_pivot_root, b"/rootfs", b"/rootfs/put_old")
                 if a != 0:
                     err_3 = ctypes.get_errno()
                     raise OSError(err_3, f"pivot_root failed: {os.strerror(err_3)}")
                 os.chdir("/")
                 MNT_DETACH = 2
-                ret_3 = libc.umount(b"/put_old", MNT_DETACH)
+                ret_3 = libc.umount2(b"/put_old", MNT_DETACH) #umount2 allows flags
                 if ret_3 != 0:
                     err_4 = ctypes.get_errno()
                     raise OSError(err_4, f"unmount failed: {os.strerror(err_4)}")
                 os.rmdir("/put_old")
                 libc.mount(b"proc", b"/proc", b"proc", 0, None)
                 os.execv(b"/bin/sh", ["/bin/sh"])
-        else: 
+        else:
            os.waitpid(fix_proc, 0) #pause until child process whose pid in fix_proc exits
 
     else: #parent
         os.waitpid(pid, 0)
-    return 
-
-
-
-
-
-    
+    return
