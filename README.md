@@ -9,7 +9,7 @@ limactl list # to view active VMs
 ```
 2. Shell into the created VM
 ```bash
-limactil shell placeholder # use the shell inside the VM
+limactl shell placeholder # use the shell inside the VM
 ```
 Here we can do a passwordless `sudo` so there is no need to log in as root 
 
