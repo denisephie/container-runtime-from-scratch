@@ -41,7 +41,8 @@ def command():
                
                 else:
                     put_old = "put_old"
-                    os.makedirs(put_old, exist_ok=True) #makedirs can ignore existent file path error
+                    old_root = os.path.join(rootpath, put_old) #/mnt/alpine-rootfs
+                    os.makedirs(old_root, exist_ok=True) #makedirs can ignore existent file path error
                     ARCH = os.uname().machine
                     if ARCH == "x86_64":
                         SYS_pivot_root = 155
@@ -52,7 +53,6 @@ def command():
                     else:
                         raise RuntimeError(f"CPU Architecture not supported: {ARCH}")
                 # place new root (rootfs) into new namespace
-                old_root = os.path.join(rootpath, put_old)
                 encoded_oldroot = os.fsencode(old_root)
                 a = libc.syscall(SYS_pivot_root, encoded_path, encoded_oldroot)
                 if a != 0:
