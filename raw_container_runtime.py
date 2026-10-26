@@ -30,15 +30,18 @@ def command():
                 raise OSError(err, "mount failed")
            
             else: #make rootfs into mount point here (during self-bind)
-                os.makedirs(b"/rootfs", exist_ok=True)
+                script_name = sys.argv[0]
+                rootpath = os.path.abspath(sys.argv[1])
+                encoded_path = os.fsencode(rootpath)
                 MS_BIND = 4096
-                ret_2 = libc.mount(b"/rootfs", b"/rootfs", None, MS_BIND | MS_REC, None)
+                ret_2 = libc.mount(encoded_path, encoded_path, None, MS_BIND | MS_REC, None)
                 if ret_2 != 0:
                     err_2 = ctypes.get_errno()
                     raise OSError(err_2, "mount failed")
                
                 else:
-                    os.makedirs(b"/rootfs/put_old", exist_ok=True) #makedirs can ignore existent file path error
+                    put_old = "put_old"
+                    os.makedirs(put_old, exist_ok=True) #makedirs can ignore existent file path error
                     ARCH = os.uname().machine
                     if ARCH == "x86_64":
                         SYS_pivot_root = 155
@@ -49,8 +52,9 @@ def command():
                     else:
                         raise RuntimeError(f"CPU Architecture not supported: {ARCH}")
                 # place new root (rootfs) into new namespace
-
-                a = libc.syscall(SYS_pivot_root, b"/rootfs", b"/rootfs/put_old")
+                old_root = os.path.join(rootpath, put_old)
+                encoded_oldroot = os.fsencode(old_root)
+                a = libc.syscall(SYS_pivot_root, encoded_path, encoded_oldroot)
                 if a != 0:
                     err_3 = ctypes.get_errno()
                     raise OSError(err_3, f"pivot_root failed: {os.strerror(err_3)}")
