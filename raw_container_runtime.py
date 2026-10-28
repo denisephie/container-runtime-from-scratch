@@ -1,6 +1,7 @@
 import os
 import ctypes
 import sys
+import socket
 
 libc = ctypes.CDLL('libc.so.6', use_errno=True)
 
@@ -9,10 +10,10 @@ def command(cont_new_root):
     shell_path = os.path.join(rootfs, "bin", "sh")
     if not os.path.isdir(rootfs): 
         sys.exit(f"{rootfs} does not exist")
-    #if not os.path.lexists(shell_path): 
-        #sys.exit("/bin/sh does not exist")
-    if not os.access(shell_path, os.X_OK):
-        sys.exit("/bin/sh is not executable")
+    if not os.path.lexists(shell_path): 
+        sys.exit("/bin/sh does not exist")
+    #if not os.access(shell_path, os.X_OK):
+        #sys.exit("/bin/sh is not executable")
     if not os.path.isdir(os.path.join(rootfs,"proc")):
         sys.exit("/proc does not exist")
     pid = os.fork()
@@ -20,7 +21,7 @@ def command(cont_new_root):
         os.unshare(os.CLONE_NEWUTS | os.CLONE_NEWPID | os.CLONE_NEWNS)
         fix_proc = os.fork() #the proc we want to isolate -> bcomes PID 1
         if fix_proc == 0:
-            os.sethostname(b"legleg-ubuntu")
+            socket.sethostname(b"legleg-ubuntu")
 
             #specify passed argument and returned data types before any libc.mount are use d
             libc.mount.argtypes = [ #to specify type of data passed in
@@ -74,22 +75,28 @@ def command(cont_new_root):
                     err_4 = ctypes.get_errno()
                     raise OSError(err_4, f"unmount failed: {os.strerror(err_4)}")
                 os.rmdir("/put_old")
-                libc.mount(b"proc", b"/proc", b"proc", 0, None)
+                libc.mount(b"proc", b"proc", b"proc", 0, None)
                 os.execv(b"/bin/sh", ["/bin/sh"])
         else:
            grandchild, status2 = os.waitpid(fix_proc, 0) #pause until child process whose pid in fix_proc exits
            exit_code2 = os.waitstatus_to_exitcode(status2) #convert status to code
-           print("Grandchild proc exited with code: ", exit_code2)
-           os._exit(exit_code2)
-
+           if os.WIFSIGNALED(status2):
+                 print("Grandchild proc exited with code: ", (128-exit_code2), flush=True)
+                 os._exit(128-exit_code2)
+           else:
+                 print("Grandchild proc exited with code: ", exit_code2, flush=True)
+                 os._exit(exit_code2)
     else: #parent
         child, status1 = os.waitpid(pid, 0)
-        exit_code1 = os.waitstatus_to_exitcode(status1)
-        print("Child proc exited with code: ", exit_code1)
-    return exit_code1
+        exit_code1 = os.waitstatus_to_exitcode(status1) #signal death is returned as negative that is wrapped by os to 247 that means nothing (check notion for code meanings)
+        if os.WIFSIGNALED(status1):
+            print("Child proc exited with code: ", (128-exit_code1), flush=True)
+        else: 
+            return exit_code1
 
 
 if __name__ == "__main__":
     if len(sys.argv) < 2:
         sys.exit("Argument not valid")
     correct = command(sys.argv[1])
+    sys.exit(correct)
