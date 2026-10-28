@@ -18,18 +18,18 @@ def command(cont_new_root):
         sys.exit("/proc does not exist")
     pid = os.fork()
     if pid == 0: #child
-        os.unshare(os.CLONE_NEWUTS | os.CLONE_NEWPID | os.CLONE_NEWNS)
+        os.unshare(os.CLONE_NEWUTS | os.CLONE_NEWPID | os.CLONE_NEWNS) #disassociate parts of exec context that it currently shares w other procs
         fix_proc = os.fork() #the proc we want to isolate -> bcomes PID 1
-        if fix_proc == 0:
+        if fix_proc == 0: #grandchild
             socket.sethostname(b"legleg-ubuntu")
 
-            #specify passed argument and returned data types before any libc.mount are use d
+            #specify passed argument and returned data types before any libc.mount are used - more info in notion notes
             libc.mount.argtypes = [ #to specify type of data passed in
-                    ctypes.c_char_p, #points to immutable string -> read-only c strings
-                    ctypes.c_char_p,
-                    ctypes.c_char_p,
-                    ctypes.c_ulong, #unsigned long integers
-                    ctypes.c_void_p
+                    ctypes.c_char_p, #points to immutable byte string -> read-only c strings
+                    ctypes.c_char_p, 
+                    ctypes.c_char_p, 
+                    ctypes.c_ulong, #mount flags, unsigned long integers
+                    ctypes.c_void_p 
             ]
             libc.mount.restype = ctypes.c_int #type to return            
             #mount flags - to recursively make the mount tree private (usually used after unshare)
@@ -91,6 +91,7 @@ def command(cont_new_root):
         exit_code1 = os.waitstatus_to_exitcode(status1) #signal death is returned as negative that is wrapped by os to 247 that means nothing (check notion for code meanings)
         if os.WIFSIGNALED(status1):
             print("Child proc exited with code: ", (128-exit_code1), flush=True)
+            return (128-exit_code1)
         else: 
             return exit_code1
 
