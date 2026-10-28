@@ -4,7 +4,11 @@ import sys
 
 libc = ctypes.CDLL('libc.so.6', use_errno=True)
 
-def command():
+def command(pyscript_name=None, cont_new_root=None):
+    if pyscript_name is None or cont_new_root is None:
+        print("No arguments passed.")
+        return
+    print("Arguments received.")
     pid = os.fork()
     if pid == 0: #child
         os.unshare(os.CLONE_NEWUTS | os.CLONE_NEWPID | os.CLONE_NEWNS)
@@ -73,3 +77,7 @@ def command():
     else: #parent
         os.waitpid(pid, 0)
     return
+
+
+if __name__ == "__main__":
+    command()
