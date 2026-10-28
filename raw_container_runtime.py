@@ -4,11 +4,17 @@ import sys
 
 libc = ctypes.CDLL('libc.so.6', use_errno=True)
 
-def command(pyscript_name=None, cont_new_root=None):
-    if pyscript_name is None or cont_new_root is None:
-        print("No arguments passed.")
-        return
-    print("Arguments received.")
+def command(cont_new_root):
+    rootfs = os.path.abspath(cont_new_root)
+    shell_path = os.path.join(rootfs, "bin", "sh")
+    if not os.path.isdir(rootfs): 
+        sys.exit(f"{rootfs} does not exist")
+    #if not os.path.lexists(shell_path): 
+        #sys.exit("/bin/sh does not exist")
+    if not os.access(shell_path, os.X_OK):
+        sys.exit("/bin/sh is not executable")
+    if not os.path.isdir(os.path.join(rootfs,"proc")):
+        sys.exit("/proc does not exist")
     pid = os.fork()
     if pid == 0: #child
         os.unshare(os.CLONE_NEWUTS | os.CLONE_NEWPID | os.CLONE_NEWNS)
@@ -34,8 +40,7 @@ def command(pyscript_name=None, cont_new_root=None):
                 raise OSError(err, "mount failed")
            
             else: #make rootfs into mount point here (during self-bind)
-                script_name = sys.argv[0]
-                rootpath = os.path.abspath(sys.argv[1])
+                rootpath = os.path.abspath(cont_new_root)
                 encoded_path = os.fsencode(rootpath)
                 MS_BIND = 4096
                 ret_2 = libc.mount(encoded_path, encoded_path, None, MS_BIND | MS_REC, None)
@@ -45,7 +50,7 @@ def command(pyscript_name=None, cont_new_root=None):
                
                 else:
                     put_old = "put_old"
-                    old_root = os.path.join(rootpath, put_old) #/mnt/alpine-rootfs
+                    old_root = os.path.join(rootpath, put_old) #/put_old
                     os.makedirs(old_root, exist_ok=True) #makedirs can ignore existent file path error
                     ARCH = os.uname().machine
                     if ARCH == "x86_64":
@@ -72,12 +77,19 @@ def command(pyscript_name=None, cont_new_root=None):
                 libc.mount(b"proc", b"/proc", b"proc", 0, None)
                 os.execv(b"/bin/sh", ["/bin/sh"])
         else:
-           os.waitpid(fix_proc, 0) #pause until child process whose pid in fix_proc exits
+           grandchild, status2 = os.waitpid(fix_proc, 0) #pause until child process whose pid in fix_proc exits
+           exit_code2 = os.waitstatus_to_exitcode(status2) #convert status to code
+           print("Grandchild proc exited with code: ", exit_code2)
+           os._exit(exit_code2)
 
     else: #parent
-        os.waitpid(pid, 0)
-    return
+        child, status1 = os.waitpid(pid, 0)
+        exit_code1 = os.waitstatus_to_exitcode(status1)
+        print("Child proc exited with code: ", exit_code1)
+    return exit_code1
 
 
 if __name__ == "__main__":
-    command()
+    if len(sys.argv) < 2:
+        sys.exit("Argument not valid")
+    correct = command(sys.argv[1])
