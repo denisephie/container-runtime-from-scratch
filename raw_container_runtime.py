@@ -27,8 +27,8 @@ def command(cont_new_root):
         if fix_proc == 0: #grandchild
             os.close(r_pid)
             os.close(w_pid)
-            os.read(r_go, 1) #block on pipe
             os.close(w_go)
+            os.read(r_go, 1) #block on pipe
             os.close(r_go)
             socket.sethostname(b"legleg-ubuntu")
 
@@ -105,6 +105,7 @@ def command(cont_new_root):
         os.makedirs(cgroup_path, exist_ok=True)
         os.close(w_pid)
         gc_pid = int(os.read(r_pid, 32).decode())
+        os.close(r_pid)
         with open(os.path.join(cgroup_path, "memory.max"), "w") as i:
             i.write(str(1024 * 1024 * 1024))
         with open(os.path.join(cgroup_path, "pids.max"), "w") as i:
@@ -118,6 +119,7 @@ def command(cont_new_root):
         os.write(w_go, b"1") # write 1 byte to trigger os.read r_go in grandchild
         os.close(w_go)
         child, status1 = os.waitpid(pid, 0)
+        os.rmdir(cgroup_path)
         exit_code1 = os.waitstatus_to_exitcode(status1) #signal death is returned as negative that is wrapped by os to 247 that means nothing (check notion for code meanings)
         if os.WIFSIGNALED(status1):
             print("Child proc exited with code: ", (128-exit_code1), flush=True)
