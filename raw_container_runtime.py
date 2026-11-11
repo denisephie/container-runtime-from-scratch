@@ -107,9 +107,9 @@ def command(cont_new_root):
         gc_pid = int(os.read(r_pid, 32).decode())
         os.close(r_pid)
         with open(os.path.join(cgroup_path, "memory.max"), "w") as i:
-            i.write(str(1024 * 1024 * 1024))
+            i.write(str(100 * 1024 * 1024))
         with open(os.path.join(cgroup_path, "pids.max"), "w") as i:
-            i.write("128")
+            i.write("20")
         with open(os.path.join(cgroup_path, "cpu.max"), "w") as i:
             i.write("200000 100000")
         with open(os.path.join(cgroup_path, "cgroup.procs"), "w") as i:
