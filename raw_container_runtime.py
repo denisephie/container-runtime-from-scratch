@@ -105,6 +105,12 @@ def command(cont_new_root):
         os.makedirs(cgroup_path, exist_ok=True)
         os.close(w_pid)
         gc_pid = int(os.read(r_pid, 32).decode())
+        with open(os.path.join(cgroup_path, "memory.max"), "w") as i:
+            i.write(str(1024 * 1024 * 1024))
+        with open(os.path.join(cgroup_path, "pids.max"), "w") as i:
+            i.write("128")
+        with open(os.path.join(cgroup_path, "cpu.max"), "w") as i:
+            i.write("200000 100000")
         with open(os.path.join(cgroup_path, "cgroup.procs"), "w") as i:
             i.write(str(gc_pid))
         os.close(r_go)
