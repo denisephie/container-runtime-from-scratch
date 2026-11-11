@@ -8,7 +8,8 @@ libc = ctypes.CDLL('libc.so.6', use_errno=True)
 def command(cont_new_root):
     rootfs = os.path.abspath(cont_new_root)
     shell_path = os.path.join(rootfs, "bin", "sh")
-    cgroup_path = "/sys/fs/cgroup"
+    cgroup_path = "/sys/fs/cgroup/containphie"
+    r_pid, w_pid = os.pipe() # pipe for child to give gc pid to parent
     r_go, w_go = os.pipe() # pipe for parent to give go to grandchild
     if not os.path.isdir(rootfs): 
         sys.exit(f"{rootfs} does not exist")
@@ -24,10 +25,13 @@ def command(cont_new_root):
         os.unshare(os.CLONE_NEWUTS | os.CLONE_NEWPID | os.CLONE_NEWNS) #disassociate parts of exec context that it currently shares w other procs
         fix_proc = os.fork() #the proc we want to isolate -> bcomes PID 1
         if fix_proc == 0: #grandchild
-            socket.sethostname(b"legleg-ubuntu")
+            os.close(r_pid)
+            os.close(w_pid)
+            os.read(r_go, 1) #block on pipe
             os.close(w_go)
-            os.read(r_go, 1) # block til parent writes to w_go
             os.close(r_go)
+            socket.sethostname(b"legleg-ubuntu")
+
 
             #specify passed argument and returned data types before any libc.mount are used - more info in notion notes
             libc.mount.argtypes = [ #to specify type of data passed in
@@ -86,6 +90,9 @@ def command(cont_new_root):
         else:
            os.close(r_go)
            os.close(w_go)
+           os.close(r_pid)
+           os.write(w_pid, str(fix_proc).encode())
+           os.close(w_pid)
            grandchild, status2 = os.waitpid(fix_proc, 0) #pause until child process whose pid in fix_proc exits
            exit_code2 = os.waitstatus_to_exitcode(status2) #convert status to code
            if os.WIFSIGNALED(status2):
@@ -95,6 +102,11 @@ def command(cont_new_root):
                  print("Grandchild proc exited with code: ", exit_code2, flush=True)
                  os._exit(exit_code2)
     else: #parent
+        os.makedirs(cgroup_path, exist_ok=True)
+        os.close(w_pid)
+        gc_pid = int(os.read(r_pid, 32).decode())
+        with open(os.path.join(cgroup_path, "cgroup.procs"), "w") as i:
+            i.write(str(gc_pid))
         os.close(r_go)
         #error handling (?)
         os.write(w_go, b"1") # write 1 byte to trigger os.read r_go in grandchild
