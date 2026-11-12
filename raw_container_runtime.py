@@ -111,7 +111,7 @@ def command(cont_new_root):
         with open(os.path.join(cgroup_path, "pids.max"), "w") as i:
             i.write("20")
         with open(os.path.join(cgroup_path, "cpu.max"), "w") as i:
-            i.write("200000 100000")
+            i.write("50000 100000")
         with open(os.path.join(cgroup_path, "cgroup.procs"), "w") as i:
             i.write(str(gc_pid))
         os.close(r_go)
