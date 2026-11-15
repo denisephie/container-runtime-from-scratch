@@ -20,6 +20,15 @@ def command(cont_new_root):
     if not os.path.isdir(os.path.join(rootfs,"proc")):
         sys.exit("/proc does not exist")
     
+    base_path = "/var/lib/container-runtime"
+    #lowerdir_path = os.path.join(base_path, "lower")
+    upperdir_path = os.path.join(base_path, "upper")
+    workdir_path = os.path.join(base_path, "work")
+    merged_path = os.path.join(base_path, "merged")
+    for i in [upperdir_path, workdir_path, merged_path]:
+        os.makedirs(i, exist_ok=True)
+    image_mount = os.fsencode(f"lowerdir={rootfs},upperdir={upperdir_path},workdir={workdir_path}")
+
     pid = os.fork()
     if pid == 0: #child
         os.unshare(os.CLONE_NEWUTS | os.CLONE_NEWPID | os.CLONE_NEWNS) #disassociate parts of exec context that it currently shares w other procs
@@ -51,17 +60,14 @@ def command(cont_new_root):
                 raise OSError(err, "mount failed")
            
             else: #make rootfs into mount point here (during self-bind)
-                rootpath = os.path.abspath(cont_new_root)
-                encoded_path = os.fsencode(rootpath)
-                MS_BIND = 4096
-                ret_2 = libc.mount(encoded_path, encoded_path, None, MS_BIND | MS_REC, None)
-                if ret_2 != 0:
-                    err_2 = ctypes.get_errno()
-                    raise OSError(err_2, "mount failed")
-               
+                mp_encoded = os.fsencode(merged_path)
+                image_to_mount = libc.mount(b"overlay", mp_encoded, b"overlay", 0, image_mount)
+                if image_to_mount != 0:
+                    err_im = ctypes.get_errno()
+                    raise OSError (err_im, "merged mount failed")
                 else:
                     put_old = "put_old"
-                    old_root = os.path.join(rootpath, put_old) #/put_old
+                    old_root = os.path.join(merged_path, put_old) #/put_old
                     os.makedirs(old_root, exist_ok=True) #makedirs can ignore existent file path error
                     ARCH = os.uname().machine
                     if ARCH == "x86_64":
@@ -72,9 +78,18 @@ def command(cont_new_root):
                         SYS_pivot_root = 217
                     else:
                         raise RuntimeError(f"CPU Architecture not supported: {ARCH}")
+                '''
+                rootpath = os.path.abspath(cont_new_root)
+                encoded_path = os.fsencode(rootpath)
+                MS_BIND = 4096
+                ret_2 = libc.mount(encoded_path, encoded_path, None, MS_BIND | MS_REC, None)
+                if ret_2 != 0:
+                    err_2 = ctypes.get_errno()
+                    raise OSError(err_2, "mount failed")
+                '''
                 # place new root (rootfs) into new namespace
                 encoded_oldroot = os.fsencode(old_root)
-                a = libc.syscall(SYS_pivot_root, encoded_path, encoded_oldroot)
+                a = libc.syscall(SYS_pivot_root, mp_encoded, encoded_oldroot)
                 if a != 0:
                     err_3 = ctypes.get_errno()
                     raise OSError(err_3, f"pivot_root failed: {os.strerror(err_3)}")
