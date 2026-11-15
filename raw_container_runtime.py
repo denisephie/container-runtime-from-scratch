@@ -2,13 +2,17 @@ import os
 import ctypes
 import sys
 import socket
+import secrets
+import shutil
 
 libc = ctypes.CDLL('libc.so.6', use_errno=True)
 
 def command(cont_new_root):
     rootfs = os.path.abspath(cont_new_root)
     shell_path = os.path.join(rootfs, "bin", "sh")
-    cgroup_path = "/sys/fs/cgroup/containphie"
+    container_base = secrets.token_hex()
+    cgroup_path = os.path.join("/sys/fs/cgroup/", container_base)
+    upper, work, merged = [secrets.token_hex() for i in range(3)]
     r_pid, w_pid = os.pipe() # pipe for child to give gc pid to parent
     r_go, w_go = os.pipe() # pipe for parent to give go to grandchild
     if not os.path.isdir(rootfs): 
@@ -20,13 +24,14 @@ def command(cont_new_root):
     if not os.path.isdir(os.path.join(rootfs,"proc")):
         sys.exit("/proc does not exist")
     
-    base_path = "/var/lib/container-runtime"
+    base_path = os.path.join("/var/lib/container-runtime",container_base)
     #lowerdir_path = os.path.join(base_path, "lower")
-    upperdir_path = os.path.join(base_path, "upper")
-    workdir_path = os.path.join(base_path, "work")
-    merged_path = os.path.join(base_path, "merged")
+    upperdir_path = os.path.join(base_path, upper)
+    workdir_path = os.path.join(base_path, work)
+    merged_path = os.path.join(base_path, merged)
+    #placeholder
     for i in [upperdir_path, workdir_path, merged_path]:
-        os.makedirs(i, exist_ok=True)
+        os.makedirs(i, exist_ok=False)
     image_mount = os.fsencode(f"lowerdir={rootfs},upperdir={upperdir_path},workdir={workdir_path}")
 
     pid = os.fork()
@@ -117,24 +122,33 @@ def command(cont_new_root):
                  print("Grandchild proc exited with code: ", exit_code2, flush=True)
                  os._exit(exit_code2)
     else: #parent
-        os.makedirs(cgroup_path, exist_ok=True)
-        os.close(w_pid)
-        gc_pid = int(os.read(r_pid, 32).decode())
-        os.close(r_pid)
-        with open(os.path.join(cgroup_path, "memory.max"), "w") as i:
-            i.write(str(512 * 1024 * 1024))
-        with open(os.path.join(cgroup_path, "pids.max"), "w") as i:
-            i.write("128")
-        with open(os.path.join(cgroup_path, "cpu.max"), "w") as i:
-            i.write("100000 100000")
-        with open(os.path.join(cgroup_path, "cgroup.procs"), "w") as i:
-            i.write(str(gc_pid))
-        os.close(r_go)
-        #error handling (?)
-        os.write(w_go, b"1") # write 1 byte to trigger os.read r_go in grandchild
-        os.close(w_go)
-        child, status1 = os.waitpid(pid, 0)
-        os.rmdir(cgroup_path)
+        try:
+            os.makedirs(cgroup_path, exist_ok=True)
+            os.close(w_pid)
+            gc_pid = int(os.read(r_pid, 32).decode())
+            os.close(r_pid)
+            with open(os.path.join(cgroup_path, "memory.max"), "w") as i:
+                i.write(str(512 * 1024 * 1024))
+            with open(os.path.join(cgroup_path, "pids.max"), "w") as i:
+                i.write("128")
+            with open(os.path.join(cgroup_path, "cpu.max"), "w") as i:
+                i.write("100000 100000")
+            with open(os.path.join(cgroup_path, "cgroup.procs"), "w") as i:
+                i.write(str(gc_pid))
+            os.close(r_go)
+            #error handling (?)
+            os.write(w_go, b"1") # write 1 byte to trigger os.read r_go in grandchild
+            os.close(w_go)
+            child, status1 = os.waitpid(pid, 0)
+        finally:
+            try:
+                os.rmdir(cgroup_path)
+            except OSError as e:
+                print(f"failed to remove cgroup {cgroup_path}: {e}", file=sys.stderr, flush=True)
+            try:
+                shutil.rmtree(base_path)
+            except OSError as e:
+                print(f"failed to remove {base_path}: {e}", file=sys.stderr, flush=True)
         exit_code1 = os.waitstatus_to_exitcode(status1) #signal death is returned as negative that is wrapped by os to 247 that means nothing (check notion for code meanings)
         if os.WIFSIGNALED(status1):
             print("Child proc exited with code: ", (128-exit_code1), flush=True)
