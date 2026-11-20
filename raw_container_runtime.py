@@ -1,11 +1,51 @@
-import os
-import ctypes
-import sys
-import socket
-import secrets
-import shutil
+import os, ctypes, sys, socket, secrets, shutil, tarfile, argparse, hashlib
 
 libc = ctypes.CDLL('libc.so.6', use_errno=True)
+
+parser = argparse.ArgumentParser(
+                    prog='containphie runtime',
+                    description='toples lariwaktu, masih dalam progres',
+                    epilog='sekian trims <3')
+
+commands = parser.add_subparsers(dest="command", required=True)
+image_parser = commands.add_parser("image", help="manage images")
+run_parser = commands.add_parser("run", help="run container from images")
+
+image_commands = parser.add_subparsers(dest="image_command", required=True)4
+
+# import operation
+image_import_parser = image_commands.add_parser("import", help="import rootfs archive")
+
+# arguments for import operation
+image_import_parser.add_argument("tarball_path", help="path to local tarball")
+image_import_parser.add_argument("tag", help="tag to assign, e.g alpine:local")
+
+run_parser.add_argument("image_reference", help="image tag or image id, e.g alpime:local")
+# this gives -> sudo python3 script.py run alpine:local
+
+
+runtime_path = "/var/lib/container-runtime"
+image_path = os.path.join(runtime_path, "images")
+tags_path = os.path.join(runtime_path, "tags")
+imports_path = os.path.join(runtime_path, "imports")
+
+#extract the tarball (.tar.gz) that already exists on the disk 
+tarball_path = "placeholder"
+digest = hashlib.sha256() # return sha-256 hash object (not value), has internal state
+with open(tarball_path, "rb") as file:
+    while True:
+        block = file.read(1024 * 1024)
+
+        if not block:
+            break
+        digest.update(block) # append block to the sha-256 hash object's internal buffer
+image_id = digest.hexdigest() # converts sha-256 binary digest into a string of hexadecimal digits
+
+rootfs_path = os.path.join(image_path, image_id, "rootfs")
+os.makedirs(rootfs_path, exist_ok=False)
+    
+with tarfile.open(tarball_path, "r:*") as tar:
+    tar.extractall(path=rootfs_path)
 
 def command(cont_new_root):
     rootfs = os.path.abspath(cont_new_root)
@@ -23,13 +63,14 @@ def command(cont_new_root):
         #sys.exit("/bin/sh is not executable")
     if not os.path.isdir(os.path.join(rootfs,"proc")):
         sys.exit("/proc does not exist")
-    
-    base_path = os.path.join("/var/lib/container-runtime",container_base)
+
+    runtime_path = "/var/lib/container-runtime"
+    base_path = os.path.join(runtime_path,container_base)
     #lowerdir_path = os.path.join(base_path, "lower")
     upperdir_path = os.path.join(base_path, upper)
     workdir_path = os.path.join(base_path, work)
     merged_path = os.path.join(base_path, merged)
-    #placeholder
+
     for i in [upperdir_path, workdir_path, merged_path]:
         os.makedirs(i, exist_ok=False)
     image_mount = os.fsencode(f"lowerdir={rootfs},upperdir={upperdir_path},workdir={workdir_path}")
