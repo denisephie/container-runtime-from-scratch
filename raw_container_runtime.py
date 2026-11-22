@@ -63,12 +63,14 @@ def take_tarball(tarball_path_passed):
         try:
             with tarfile.open(tarball_path, "r:*") as tar:
                 tar.extractall(path=temp_path, filter=custom_tarfilter)
-        except (tarfile.TarError, OSError) as err:
+                os.makedirs(image_dir, exist_ok=True)
+                os.replace(temp_path, rootfs_path)
+        except (tarfile.TarError, OSError, EOFError) as err:
             shutil.rmtree(temp_path, ignore_errors=True)
             sys.exit(f"{err}: import failed")
-        else:
-            os.makedirs(image_dir, exist_ok=True)
-            os.replace(temp_path, rootfs_path)
+        finally: 
+            if os.path.isdir(temp_path):
+                shutil.rmtree(temp_path)
     return image_id, image_dir
 
 def command(cont_new_root):
