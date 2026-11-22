@@ -223,7 +223,10 @@ def command(cont_new_root):
 
 
 if __name__ == "__main__":
-    if len(sys.argv) < 2:
-        sys.exit("Argument not valid")
-    correct = command(sys.argv[1])
-    sys.exit(correct)
+    if args.command == "image":
+        if args.image_command == "import":
+            image_id, image_dir = take_tarball(args.tarball_path)
+            print(image_id, image_dir)
+    elif args.command == "run":
+        # for now image_reference is still treated as a rootfs path
+        sys.exit(command(args.image_reference))
