@@ -1,6 +1,8 @@
-import os, ctypes, sys, socket, secrets, shutil, tarfile, argparse, hashlib
+import os, ctypes, sys, socket, secrets, shutil, tarfile, argparse, hashlib, tempfile
 
 libc = ctypes.CDLL('libc.so.6', use_errno=True)
+
+runtime_path = "/var/lib/container-runtime"
 
 parser = argparse.ArgumentParser(
                     prog='containphie runtime',
@@ -11,7 +13,7 @@ commands = parser.add_subparsers(dest="command", required=True)
 image_parser = commands.add_parser("image", help="manage images")
 run_parser = commands.add_parser("run", help="run container from images")
 
-image_commands = parser.add_subparsers(dest="image_command", required=True)4
+image_commands = image_parser.add_subparsers(dest="image_command", required=True)
 
 # import operation
 image_import_parser = image_commands.add_parser("import", help="import rootfs archive")
@@ -23,29 +25,51 @@ image_import_parser.add_argument("tag", help="tag to assign, e.g alpine:local")
 run_parser.add_argument("image_reference", help="image tag or image id, e.g alpime:local")
 # this gives -> sudo python3 script.py run alpine:local
 
+args = parser.parse_args()
 
-runtime_path = "/var/lib/container-runtime"
-image_path = os.path.join(runtime_path, "images")
-tags_path = os.path.join(runtime_path, "tags")
-imports_path = os.path.join(runtime_path, "imports")
+def custom_tarfilter(member, dest_path):
+    original = member.mode #unmodified mode bfore filter  
+    filtered = tarfile.tar_filter(member, dest_path)
+    saved_final = filtered.replace(mode=original)
+    return saved_final
 
-#extract the tarball (.tar.gz) that already exists on the disk 
-tarball_path = "placeholder"
-digest = hashlib.sha256() # return sha-256 hash object (not value), has internal state
-with open(tarball_path, "rb") as file:
-    while True:
-        block = file.read(1024 * 1024)
+def take_tarball(tarball_path_passed):
+    runtime_path = "/var/lib/container-runtime"
+    image_path = os.path.join(runtime_path, "images")
+    #ext_folder = os.path.join()
+    tags_path = os.path.join(runtime_path, "tags")
+    imports_path = os.path.join(runtime_path, "imports")
 
-        if not block:
-            break
-        digest.update(block) # append block to the sha-256 hash object's internal buffer
-image_id = digest.hexdigest() # converts sha-256 binary digest into a string of hexadecimal digits
+    for i in [image_path, tags_path, imports_path]:
+        os.makedirs(i, exist_ok=True)
 
-rootfs_path = os.path.join(image_path, image_id, "rootfs")
-os.makedirs(rootfs_path, exist_ok=False)
-    
-with tarfile.open(tarball_path, "r:*") as tar:
-    tar.extractall(path=rootfs_path)
+    #extract the tarball (.tar.gz) that already exists on the disk 
+    tarball_path = tarball_path_passed
+    digest = hashlib.sha256() # return sha-256 hash object (not value), has internal state
+    with open(tarball_path, "rb") as file:
+        while True:
+            block = file.read(1024 * 1024)
+
+            if not block:
+                break
+            digest.update(block) # append block to the sha-256 hash object's internal buffer
+    image_id = digest.hexdigest() # converts sha-256 binary digest into a string of hexadecimal digits
+    image_dir = os.path.join(image_path, image_id)
+    rootfs_path = os.path.join(image_dir, "rootfs")
+    if os.path.isdir(rootfs_path):
+        print("image already exists")
+    else:
+        temp_path = tempfile.mkdtemp(dir=imports_path) # unique temp dir on same filesys as the dest
+        try:
+            with tarfile.open(tarball_path, "r:*") as tar:
+                tar.extractall(path=temp_path, filter=custom_tarfilter)
+        except (tarfile.TarError, OSError) as err:
+            shutil.rmtree(temp_path, ignore_errors=True)
+            sys.exit(f"{err}: import failed")
+        else:
+            os.makedirs(image_dir, exist_ok=True)
+            os.replace(temp_path, rootfs_path)
+    return image_id, image_dir
 
 def command(cont_new_root):
     rootfs = os.path.abspath(cont_new_root)
