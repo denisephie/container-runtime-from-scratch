@@ -15,6 +15,10 @@ run_parser = commands.add_parser("run", help="run container from images")
 
 image_commands = image_parser.add_subparsers(dest="image_command", required=True)
 
+#run_commands = run_parser.add_subparsers(dest="run_command", required=True)
+#run_tag_parser = run_commands.add_parser("build", help="build tag files")
+#run_tag_parser.add_argument("tag")
+
 # import operation
 image_import_parser = image_commands.add_parser("import", help="import rootfs archive")
 
@@ -22,7 +26,7 @@ image_import_parser = image_commands.add_parser("import", help="import rootfs ar
 image_import_parser.add_argument("tarball_path", help="path to local tarball")
 image_import_parser.add_argument("tag", help="tag to assign, e.g alpine:local")
 
-run_parser.add_argument("image_reference", help="image tag or image id, e.g alpime:local")
+run_parser.add_argument("image_reference", help="image tag or image id, e.g alpine:local")
 # this gives -> sudo python3 script.py run alpine:local
 
 args = parser.parse_args()
@@ -37,10 +41,9 @@ def take_tarball(tarball_path_passed):
     runtime_path = "/var/lib/container-runtime"
     image_path = os.path.join(runtime_path, "images")
     #ext_folder = os.path.join()
-    tags_path = os.path.join(runtime_path, "tags")
     imports_path = os.path.join(runtime_path, "imports")
 
-    for i in [image_path, tags_path, imports_path]:
+    for i in [image_path, imports_path]:
         os.makedirs(i, exist_ok=True)
 
     #extract the tarball (.tar.gz) that already exists on the disk 
@@ -72,6 +75,31 @@ def take_tarball(tarball_path_passed):
             if os.path.isdir(temp_path):
                 shutil.rmtree(temp_path)
     return image_id, image_dir
+
+def image_tag(tag_passed, image_id):
+    if tag_passed == "":
+        sys.exit("tag is empty")
+    elif tag_passed in (".", ".."):
+        sys.exit("invalid tag name")
+    elif "/" in tag_passed or "\0" in tag_passed:
+        sys.exit("invalid tag name")
+    else:
+        tags_path = os.path.join(runtime_path, "tags")
+        tag_file = os.path.join(tags_path, tag_passed)
+        os.makedirs(tags_path, exist_ok=True)
+        fd, temp_path = tempfile.mkstemp(dir=tags_path) # temporary file
+        try:
+            with os.fdopen(fd, "w") as file:
+                file.write(image_id)
+                file.flush()
+                os.fsync(file.fileno())
+            os.replace(temp_path, tag_file)
+        except OSError as err:
+            sys.exit(f"{err}: retag failed")
+        finally:
+            if os.path.isfile(temp_path):
+                os.unlink(temp_path)
+    return tag_file
 
 def command(cont_new_root):
     rootfs = os.path.abspath(cont_new_root)
@@ -228,7 +256,7 @@ if __name__ == "__main__":
     if args.command == "image":
         if args.image_command == "import":
             image_id, image_dir = take_tarball(args.tarball_path)
-            print(image_id, image_dir)
+            tag_file = image_tag(args.tag, image_id)
+            print(image_id, image_dir, tag_file)
     elif args.command == "run":
-        # for now image_reference is still treated as a rootfs path
         sys.exit(command(args.image_reference))
